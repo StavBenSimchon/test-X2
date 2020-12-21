@@ -1,6 +1,6 @@
 node {
     stage("checkout"){
-        checkout([$class: 'GitSCM', branches: [[name: '**']], 
+        checkout([$class: 'GitSCM', branches: [[name: '']], 
         doGenerateSubmoduleConfigurations: false, 
         extensions: [], 
         submoduleCfg: [], 

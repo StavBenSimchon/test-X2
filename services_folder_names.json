@@ -1,0 +1,9 @@
+{
+    "crm":"crm-app",
+    "flowchart-executor":"flowchart-executor",
+    "bpmn":"crm-bpmn",
+    "gateway-crm":"crm-gateway",
+    "notification":"crm-notification",
+    "mailbox-fetcher":"crm-mailbox-fetcher",
+    "bonus-job":"crm-bonus-job"
+}

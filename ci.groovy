@@ -1,69 +1,87 @@
 node {
-    stage('parse payload'){
-        env.ACTION = sh (
-            script: 'set +x; echo $payload | jq -e  .action | tr -d \\\"',
-            returnStdout: true
-        ).trim()   
-        env.REP_NAME = sh (
-            script: 'set +x; echo $payload | jq -e  .repository.name | tr -d \\\"',
-            returnStdout: true
-        ).trim()
-        env.BRANCH = sh (
-            script: 'set +x; echo $payload | jq -e  .pull_request.head.ref | tr -d \\\"',
-            returnStdout: true
-        ).trim() 
-        env.MERGED = sh (
-            script: 'set +x; echo $payload | jq -e  .pull_request.merged | tr -d \\\"',
-            returnStdout: true
-        ).trim()
-        env.MERGED_TO = sh (
-            script: 'set +x; echo $payload | jq -e  .pull_request.base.ref | tr -d \\\"',
-            returnStdout: true
-        ).trim()
-        env.COMMIT_SHA = sh (
-            script: 'set +x; echo $payload | jq -e  .pull_request.head.sha | tr -d \\\"',
-            returnStdout: true
-        ).trim()
-        // env.MAIN_BRANCH="integration"
-        // env.ENV_DEPLOY="integration"
-        env.EXIT_AFTER_TEST=true
-        env.BRANCH_NAME="$BRANCH"
-        env.NEED_BUILD=false
-        BUILD_DEP=false
-        // testing
-        env.MAIN_BRANCH="CodeWizard-deployment"
-        services=["crm","flowchart-executor","bpmn","gateway-crm","notification","mailbox-fetcher","bonus-job"]
-        env.MODULES='crm-app,crm-gateway,crm-notification,crm-bpmn,flowchart-executor,crm-bonus-job,crm-mailbox-fetcher'
-        
-        env.COMIT=false 
-        // deploy var
-        // env.KUBE_FILE="crm-tp-$ENV_DEPLOY"
-        env.ENV_DEPLOY="testing"
-        env.KUBE_FILE="fin-client-devops-test"
+    if (payload){
+        stage('parse payload'){
+            env.ACTION = sh (
+                script: 'set +x; echo $payload | jq -e  .action | tr -d \\\"',
+                returnStdout: true
+            ).trim()   
+            env.REP_NAME = sh (
+                script: 'set +x; echo $payload | jq -e  .repository.name | tr -d \\\"',
+                returnStdout: true
+            ).trim()
+            env.BRANCH = sh (
+                script: 'set +x; echo $payload | jq -e  .pull_request.head.ref | tr -d \\\"',
+                returnStdout: true
+            ).trim() 
+            env.MERGED = sh (
+                script: 'set +x; echo $payload | jq -e  .pull_request.merged | tr -d \\\"',
+                returnStdout: true
+            ).trim()
+            env.MERGED_TO = sh (
+                script: 'set +x; echo $payload | jq -e  .pull_request.base.ref | tr -d \\\"',
+                returnStdout: true
+            ).trim()
+        }
     }
-    switch(MERGED) {
-        case "true":
-            if (MERGED_TO!=MAIN_BRANCH){
-                return
-            }
-            else{
-                BRANCH_NAME=BRANCH
-            }
-        break
-        case "false":
-            return
+    else
+    {
+        env.ACTION =  ''
+        env.REP_NAME = ${REPO}
+        env.BRANCH = ${BRANCH}
+        env.MERGED = false
+        env.MERGED_TO = ''
+    }
+    // env.MAIN_BRANCH="integration"
+    // env.ENV_DEPLOY="integration"
+    env.EXIT_AFTER_TEST=true
+    env.BRANCH_NAME="$BRANCH"
+    BUILD_DEP=false
+    // testing
+    env.MAIN_BRANCH="main"
+    services=["crm","flowchart-executor","bpmn","gateway-crm","notification","mailbox-fetcher","bonus-job"]
+    env.MODULES='crm-app,crm-gateway,crm-notification,crm-bpmn,flowchart-executor,crm-bonus-job,crm-mailbox-fetcher'
+    // env.KUBE_FILE="crm-tp-$ENV_DEPLOY"
+    env.ENV_DEPLOY="testing"
+    env.KUBE_FILE="fin-client-devops-test"
+    def regex = '^(develop|feature-)'
+    // if the head branch or the base branch is not the gitflow branches exit the job
+    if(BRANCH.matches(regex) || MERGED_TO.matches(regex)){
+        return
+    }
+    // if the pull request is open/reopen cotinue to uild
+    // if the pull request is closed check if its merged or closed pull request
+    // if its merged we will change the branch we pull to the merged branch 
+    // example: if branch a merged to b we will build branch b
+    switch(env.ACTION){
+        case ["opened" , "reopened"]:
+        def git-compare-cmd='git diff --name-only $(git log --pretty=format:"%H" --merges -n 2 | tail -n 1)..HEAD | grep "/" | cut -f1 -d"/" | uniq'
+            break
+        case "closed":
+        //  check if its merged and not closing pull request
+        //  exiting if its closing pull request
+                if (env.MERGED=="true"){
+                    // for merged pull request we will checkout the branch we merged to
+                    env.BRANCH_NAME="$MERGED_TO"
+                }else{
+                    echo "ignoring trigger, closed pull request"
+                    return
+                }
+            break
         default:
-        break
+                echo "ignore trigger: $ACTION"
+            return
+            break
     }
     stage("clean workspace"){
         cleanWs()
     }
+    // CI BUILD ON changes
     stage("checkout"){
         checkout([$class: 'GitSCM', branches: [[name: "$branch"]], 
         doGenerateSubmoduleConfigurations: false, 
         extensions: [], 
         submoduleCfg: [], 
-        userRemoteConfigs: [[refspec: '+refs/heads/develop:refs/remotes/origin/develop ', url: 'https://github.com/mesmeslip/test-X2.git']]])
+        userRemoteConfigs: [[refspec: '+refs/heads/develop:refs/remotes/origin/develop +refs/heads/feature-*:refs/remotes/origin/feature-*', url: 'https://github.com/mesmeslip/test-X2.git']]])
         sh '''#! /bin/bash
             echo "test"
             echo $payload
@@ -72,6 +90,7 @@ node {
             env
         '''
     }
+
     dep_a=sh(script:'git diff --name-only $(git log --pretty=format:"%H" --merges -n 2 | tail -n 1)..HEAD | grep "/" | cut -f1 -d"/" | uniq',returnStdout: true)
     dep_srv=dep_a.split("\n")
     ret=[]
@@ -111,6 +130,7 @@ node {
                 echo "Building ${SRV} docker image version: ${VERSION}"
                 // googleCloudBuild credentialsId: 'p3marketers-manage', request: file("${SRV}/cloudbuild.yaml"), source: local("${SRV}"), substitutions: [_BUILD_TAG: "$VERSION"]
             }
+            // CD DEPLOY SCHEDUAL OR NIGHTLY OR IN CI
             stage("retag and deploy service: ${SRV} to env: ${ENV_DEPLOY}"){
                 env.SERVICE_FOLDER_MF="services_folder_names.json"
                 env.SERVICE_DEPLOY_MF="deployments.json"

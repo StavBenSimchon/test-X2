@@ -7,9 +7,9 @@ node {
 
     env.ACTION = ''
     env.REP_NAME = ''
+    env.MERGED = true
     env.BRANCH = "$BRANCH"
-    env.MERGED = false
-    env.MERGED_TO = ''
+    env.MERGED_TO = "$MAIN_BRANCH"
     // env.MAIN_BRANCH="integration"
     // env.ENV_DEPLOY="integration"
     // env.KUBE_FILE="crm-tp-$ENV_DEPLOY"
@@ -17,7 +17,6 @@ node {
     "notification":"crm-notification","mailbox-fetcher":"crm-mailbox-fetcher","bonus-job":"crm-bonus-job"]
     env.MODULES = srv_map.collect{it.value}.join(',')
     services = srv_map.collect{it.key}
-    env.BRANCH_NAME="$BRANCH"
     regex = "^(${MAIN_BRANCH}|feature-)"
     // git_compare_cmd is the command to tell us which services have changed, so a build will accure on them only
     // compare differences between pull request branch with main branch
@@ -47,23 +46,24 @@ node {
                 returnStdout: true
             ).trim()
         }
-    }
-
-    // if the head branch or the base branch is not the gitflow branches exit the job
-    if(!(BRANCH.matches(regex) || MERGED_TO.matches(regex))){
-        return
-    }
-    // if the pull request is open/reopen cotinue to uild
-    // if the pull request is closed check if its merged or closed pull request
-    // if its merged we will change the branch we pull to the merged branch 
-    // example: if branch a merged to b we will build branch b
     switch(env.ACTION){
         case ["opened" , "reopened"]:
-            // identify changes between the head to the "main branch"
             break
         case "closed":
-        //  check if its merged and not closing pull request
-        //  exiting if its closing pull request
+                //  check if its merged and not closing pull request
+                //  exiting if its closing pull request
+            if (env.MERGED == "false"){
+                    echo "ignoring trigger, closed pull request"
+                    return
+            }
+            break
+            default:
+                    echo "ignore trigger: $ACTION"
+                return
+                break
+        }
+    }
+    env.BRANCH_NAME="$BRANCH"
                 if (env.MERGED=="true"){
                     // for merged pull request we will checkout the branch we merged to
                     env.BRANCH_NAME="$MERGED_TO"
@@ -74,16 +74,16 @@ node {
                     // if (env.MERGED_TO == env.MAIN_BRANCH){
                     //         env.BRANCH_NAME="$MAIN_BRANCH"
                     // }
-                }else{
-                    echo "ignoring trigger, closed pull request"
-                    return
                 }
-            break
-        default:
-                echo "ignore trigger: $ACTION"
+    // if the head branch or the base branch is not the gitflow branches exit the job
+    if(!(BRANCH_NAME.matches(regex) || MERGED_TO.matches(regex))){
+        echo "branch:$BRANCH_NAME is not good"
             return
-            break
     }
+    // if the pull request is open/reopen cotinue to uild
+    // if the pull request is closed check if its merged or closed pull request
+    // if its merged we will change the branch we pull to the merged branch 
+    // example: if branch a merged to b we will build branch b
     stage("clean workspace"){
         cleanWs()
     }
@@ -102,6 +102,7 @@ node {
             git reset --hard origin/$BRANCH_NAME 
         '''
     }
+    echo "using cmd : $git_compare_cmd "
     // identify what services have changes by git diffrences by folder
     changed=sh(script:git_compare_cmd,returnStdout: true).split("\n")
     // filter the changed folder to get the changed services
@@ -151,7 +152,7 @@ node {
     }
     else{
         stage("dependencies skipped"){
-            echo "skipped"
+            echo "no changes detected"
         }
     }
 }

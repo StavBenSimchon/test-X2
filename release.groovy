@@ -1,6 +1,10 @@
 node {
     // CD DEPLOY SCHEDUAL OR NIGHTLY OR IN CI
-    //the main branch to check changes , which will have tags , and will deploy to integration environment
+    // map for retag and deploy
+    srv_map=["crm":"crm-app","flowchart-executor":"flowchart-executor","bpmn":"crm-bpmn","gateway-crm":"crm-gateway",
+    "notification":"crm-notification","mailbox-fetcher":"crm-mailbox-fetcher","bonus-job":"crm-bonus-job"]
+    env.MODULES = srv_map.collect{it.value}.join(',')
+    services = srv_map.collect{it.key}
     env.MAIN_BRANCH='integration'
     stage("check if changes happened"){
         // checkout only the develop branch
@@ -19,17 +23,12 @@ node {
         // get latest tag name and compare head with tag commit to check if there are changes
         // if there are changes create a release and deploy the services that changed
         env.TAG_STR=sh(script:'git describe --abbrev=0 --tags',returnStdout:true).trim()
-        def changes=sh(script:'[ "`git rev-parse ${TAG_STR}`" ==  "`git rev-parse HEAD`" ] && echo y || echo n').trim().toBoolean()
+        changes=sh(script:'[ "`git rev-parse ${TAG_STR}`" ==  "`git rev-parse HEAD`" ] && echo y || echo n').trim().toBoolean()
+        git_compare_cmd='git diff --name-only $(git describe --abbrev=0 --tags)..HEAD | grep "/" | cut -f1 -d"/" | uniq'
     }
     if (!changes){
-        echo 'no changes happened'
+        echo 'no changes happened between tags'
         return
-    }
-    dep_a=sh(script:git-compare-cmd,returnStdout: true)
-    dep_srv=dep_a.split("\n")
-    ret=[]
-    if(ret.size()>0){
-
     }
     stage("set release notes"){
         // bumping the tag version
@@ -82,6 +81,7 @@ node {
             echo "$nextTag" > /tmp/deployTag 
         '''
     }
+    // make services,json file which reflect what will be in the environment na dfor tracking changes
     stage("make dependencies files"){
         env.nextTag = readFile('/tmp/deployTag ').trim()
         sh '''#!/usr/bin/env bash
@@ -141,24 +141,33 @@ node {
             git push --follow-tags origin $BRANCH_NAME
         '''
     }
-    stage("retag and deploy service: ${SRV} to env: ${ENV_DEPLOY}"){
-        env.SERVICE_FOLDER_MF="services_folder_names.json"
-        env.SERVICE_DEPLOY_MF="deployments.json"
-        sh '''#!/usr/bin/env bash
-            GCR_IMAGE_NAME=$( jq -er .\\\"$SRV\\\" <<< $SERVICE_FOLDER_MF)
-            echo ">> adding $ENV_DEPLOY tag to the image: $GCR_IMAGE_NAME:$VERSION"
+    // identify what services have changes by git diffrences by folder
+    changed=sh(script:git_compare_cmd,returnStdout: true).split("\n")
+    // filter the changed folder to get the changed services
+    changed_services=changed.findAll{services.contains(it)}
+    for(srv in changed_services){
+        env.SRV=srv_map[srv]
+        // retag the changed services
+        stage("retag and deploy service: ${SRV} to env: ${ENV_DEPLOY}"){
+            env.SERVICE_FOLDER_MF="services_folder_names.json"
+            env.SERVICE_DEPLOY_MF="deployments.json"
+            sh '''#!/usr/bin/env bash
+                GCR_IMAGE_NAME=$( jq -er .\\\"$SRV\\\" <<< $SERVICE_FOLDER_MF)
+                echo ">> adding $ENV_DEPLOY tag to the image: $GCR_IMAGE_NAME:$VERSION"
 
-            BASE="gcr.io/p3marketers-manage/$GCR_IMAGE_NAME"
-            gcloud container images add-tag --quiet \
-            $BASE:$VERSION \
-            $BASE:$ENV_DEPLOY
+                BASE="gcr.io/p3marketers-manage/$GCR_IMAGE_NAME"
+                gcloud container images add-tag --quiet \
+                $BASE:$VERSION \
+                $BASE:$ENV_DEPLOY
 
-            # map gcr image name to deployment name
-            DEPLOY_SERVICE_NAME=$( jq -r .\\\"$SRV\\\" <<< $SERVICE_DEPLOY_MF)
-            echo ">> deploying service ${SRV} to cluster, env:$ENV_DEPLOY deployment name: $DEPLOY_SERVICE_NAME"
-            
-            # deploying service to cluster
-            kubectl --kubeconfig=/var/lib/jenkins/.kube/$KUBE_FILE rollout restart deployment $DEPLOY_SERVICE_NAME
-        '''
+                # map gcr image name to deployment name
+                DEPLOY_SERVICE_NAME=$( jq -r .\\\"$SRV\\\" <<< $SERVICE_DEPLOY_MF)
+                echo ">> deploying service ${SRV} to cluster, env:$ENV_DEPLOY deployment name: $DEPLOY_SERVICE_NAME"
+                
+                # deploying service to cluster
+                kubectl --kubeconfig=/var/lib/jenkins/.kube/$KUBE_FILE rollout restart deployment $DEPLOY_SERVICE_NAME
+            '''
+        }
     }
+
 }

@@ -1,40 +1,93 @@
 node {
     // CD DEPLOY SCHEDUAL OR NIGHTLY OR IN CI
     // map for retag and deploy
+    env.ENV_DEPLOY = 'integration'
+    env.MAIN_BRANCH = 'integration'
+    env.DEPLOYMENT_JOB='CRM-SERVICES-DEPLOYMENT'
+
     srv_map=["crm":"crm-app","flowchart-executor":"flowchart-executor","bpmn":"crm-bpmn","gateway-crm":"crm-gateway",
     "notification":"crm-notification","mailbox-fetcher":"crm-mailbox-fetcher","bonus-job":"crm-bonus-job"]
+    //convert to list
     env.MODULES = srv_map.collect{it.value}.join(',')
     services = srv_map.collect{it.key}
-    env.MAIN_BRANCH='integration'
+
     stage("check if changes happened"){
-        // checkout only the develop branch
+        // checkout only the MAIN_BRANCH branch
         checkout([$class: 'GitSCM', 
         branches: [[name: "$MAIN_BRANCH"]], 
         doGenerateSubmoduleConfigurations: false, 
         extensions: [], 
         submoduleCfg: [], 
-        // userRemoteConfigs: [[refspec: '+refs/heads/develop:refs/remotes/origin/develop +refs/heads/feature-*:refs/remotes/origin/feature-*', url: '${REP_NAME}']]])
-        userRemoteConfigs: [[refspec: '+refs/heads/develop:refs/remotes/origin/develop', url: 'https://github.com/mesmeslip/test-X2.git']]])
+        // userRemoteConfigs: [[refspec: '+refs/heads/${MAIN_BRANCH}:refs/remotes/origin/${MAIN_BRANCH} +refs/heads/feature-*:refs/remotes/origin/feature-*', url: '${REP_NAME}']]])
+        userRemoteConfigs: [[refspec: "+refs/heads/${MAIN_BRANCH}:refs/remotes/origin/${MAIN_BRANCH}", url: 'https://github.com/mesmeslip/test-X2.git']]])
         sh '''#! /bin/bash
             git fetch
-            git checkout $BRANCH_NAME 
-            git reset --hard origin/$BRANCH_NAME 
+            git checkout $MAIN_BRANCH 
+            git reset --hard origin/$MAIN_BRANCH
         '''
         // get latest tag name and compare head with tag commit to check if there are changes
         // if there are changes create a release and deploy the services that changed
+        // get latest tag
         env.TAG_STR=sh(script:'git describe --abbrev=0 --tags',returnStdout:true).trim()
-        changes=sh(script:'[ "`git rev-parse ${TAG_STR}`" ==  "`git rev-parse HEAD`" ] && echo y || echo n').trim().toBoolean()
+        // check if were on that same place as the tag, this is a boolean flag
+        changes=sh(script:'[ "`git rev-parse ${TAG_STR}`" ==  "`git rev-parse HEAD`" ] && echo y || echo n',returnStdout:true).trim().toBoolean()
+        // check git changes between where the head and the tag
         git_compare_cmd='git diff --name-only $(git describe --abbrev=0 --tags)..HEAD | grep "/" | cut -f1 -d"/" | uniq'
     }
     if (!changes){
         echo 'no changes happened between tags'
         return
     }
+    echo "identifing changes between tags"
+    // identify what services have changes by git diffrences by folder
+    changed=sh(script:git_compare_cmd,returnStdout: true).split("\n")
+    // filter the changed folder to get the changed services
+    changed_services=changed.findAll{services.contains(it)}
+    // if the services didnt changed skip release
+    if(changed_services.size()==0){
+        echo 'no changes happened in services, skipping release'
+        return
+    }
+    // release needs to be created
+    // creating release notes with the changes  
     stage("set release notes"){
-        // bumping the tag version
-        // creating release notes with the changes  
+        // placing release notes in folder
+        env.RN_F="crm/app/realease_notes.md"
         sh '''#!/usr/bin/env bash
             set -e
+            # Find the relevant commits up to the previous tag
+            # We search for merged pull requests
+            # We can also use the full message if required
+            #changes=$(git log $TAG_STR..HEAD --oneline --format=%B | sed '/^$/d' | awk -F' ' '{print $1}')
+            changes=$(git log $TAG_STR..HEAD --oneline --format=%B )
+
+            # We can filter out only the ticket number
+            #changes=$(echo $changes | sed 's/CRM/\\n- CRM/g' | sed '/^$/d')
+            
+            touch ${RN_F}
+            # Append the list of changes to the relase notes file
+            echo "$changes" | cat - ${RN_F} > /tmp/out && mv /tmp/out ${RN_F}
+
+            # Append the new version number   
+            echo "# $nextTag" | cat - ${RN_F} > /tmp/out && mv /tmp/out ${RN_F}
+
+            head ${RN_F} --lines=20
+
+            # get back to the root folder
+            cd -
+            git add ${RN_F}
+
+            #save for next stage
+            
+        '''
+    }
+    // make services.json file which reflect what will be in the environment and for tracking changes
+    stage("make dependencies files"){
+        // bumping tag version
+        // creating services.json , take the lastest built images from the development 
+        // (images with prefix of the main branch sorted by timestamp, grabing the "last" built image)
+        sh '''#!/usr/bin/env bash
+            set -e	
             # buping the tag version 
             # sanitise the string
             TAG_STR=$(echo $TAG_STR | tr -d "v")
@@ -54,38 +107,9 @@ node {
             done
             tag_ver=$(echo "${nv::-1}")
             nextTag="v${tag_ver}"
-
-            # Find the relevant commits up to the previous tag
-            # We search for merged pull requests
-            # We can also use the full message if required
-            #changes=$(git log $TAG_STR..HEAD --oneline --format=%B | sed '/^$/d' | awk -F' ' '{print $1}')
-            changes=$(git log $TAG_STR..HEAD --oneline --format=%B )
-
-            # We can filter out only the ticket number
-            changes=$(echo $changes | sed 's/CRM/\\n- CRM/g' | sed '/^$/d')
-            RN_F="crm/app/realease_notes.md"
-            touch ${RN_F}
-            # Append the list of changes to the relase notes file
-            echo "$changes" | cat - ${RN_F} > /tmp/out && mv /tmp/out ${RN_F}
-
-            # Append the new version number   
-            echo "# $nextTag" | cat - ${RN_F} > /tmp/out && mv /tmp/out ${RN_F}
-
-            head ${RN_F} --lines=20
-
-            # get back to the root folder
-            cd -
-            git add ${RN_F}
-
-            #save for next stage
+            # if needed for later
             echo "$nextTag" > /tmp/deployTag 
-        '''
-    }
-    // make services,json file which reflect what will be in the environment na dfor tracking changes
-    stage("make dependencies files"){
-        env.nextTag = readFile('/tmp/deployTag ').trim()
-        sh '''#!/usr/bin/env bash
-            set -e				  
+
             # Check to see if we have any required modules
 
             # Set the assoiative array to store the data
@@ -95,7 +119,8 @@ node {
             IFS=',' read -ra MODULES_ARR <<< "${MODULES}"
 
             # Build the google cli command 
-            GCLOUD_CMD="gcloud container images list-tags --quiet --format=json --limit=1"
+            // filter by mainbranch prefix , take the last created build by timestamp of the build 
+            GCLOUD_CMD="gcloud container images list-tags --filter=tags:${MAIN_BRANCH}- --format=json --quiet --limit=1 --format=json"
 
             # Loop over the modules to fetch
             for MODULE in ${MODULES_ARR[@]}
@@ -104,7 +129,7 @@ node {
                 BASE="gcr.io/p3marketers-manage/$MODULE"
 
                 # grab the version ffom GCP Container Registry
-                VERSION=`$GCLOUD_CMD $BASE | jq -e ".[0].tags[0]"`
+                VERSION=`$GCLOUD_CMD $BASE | jq -er 'select(.[0] != null)[0].tags[] | select (test("${MAIN_BRANCH}"))'`
                 
                 # Debug
                 echo "Service name: $MODULE, Latest version: $VERSION"
@@ -141,33 +166,8 @@ node {
             git push --follow-tags origin $BRANCH_NAME
         '''
     }
-    // identify what services have changes by git diffrences by folder
-    changed=sh(script:git_compare_cmd,returnStdout: true).split("\n")
-    // filter the changed folder to get the changed services
-    changed_services=changed.findAll{services.contains(it)}
-    for(srv in changed_services){
-        env.SRV=srv_map[srv]
-        // retag the changed services
-        stage("retag and deploy service: ${SRV} to env: ${ENV_DEPLOY}"){
-            env.SERVICE_FOLDER_MF="services_folder_names.json"
-            env.SERVICE_DEPLOY_MF="deployments.json"
-            sh '''#!/usr/bin/env bash
-                GCR_IMAGE_NAME=$( jq -er .\\\"$SRV\\\" <<< $SERVICE_FOLDER_MF)
-                echo ">> adding $ENV_DEPLOY tag to the image: $GCR_IMAGE_NAME:$VERSION"
-
-                BASE="gcr.io/p3marketers-manage/$GCR_IMAGE_NAME"
-                gcloud container images add-tag --quiet \
-                $BASE:$VERSION \
-                $BASE:$ENV_DEPLOY
-
-                # map gcr image name to deployment name
-                DEPLOY_SERVICE_NAME=$( jq -r .\\\"$SRV\\\" <<< $SERVICE_DEPLOY_MF)
-                echo ">> deploying service ${SRV} to cluster, env:$ENV_DEPLOY deployment name: $DEPLOY_SERVICE_NAME"
-                
-                # deploying service to cluster
-                kubectl --kubeconfig=/var/lib/jenkins/.kube/$KUBE_FILE rollout restart deployment $DEPLOY_SERVICE_NAME
-            '''
-        }
+    stage("trigger release to env"){
+            env.VERSION_TAG=readFile('/tmp/deployTag').trim()
+            build job: "${DEPLOYMENT_JOB}", parameters: [[$class: 'StringParameterValue', name: 'VERSION_TAG', value: "$VERSION_TAG"],[$class: 'StringParameterValue', name: 'ENV_DEPLOY', value: "$ENV_DEPLOY"]]
     }
-
 }

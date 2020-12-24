@@ -102,13 +102,15 @@ node {
             git reset --hard origin/$BRANCH_NAME 
         '''
     }
-    echo "using git command to identify changes: $git_compare_cmd "
+    echo "identifing changes"
     // identify what services have changes by git diffrences by folder
     changed=sh(script:git_compare_cmd,returnStdout: true).split("\n")
     // filter the changed folder to get the changed services
     changed_services=changed.findAll{services.contains(it)}
+    env.changed_services_str=changed_services.join(' ')
     // check if there are services that changed
     if(changed_services.size()>0){
+        echo "changes identified on services:$changed_services_str"
         if(BRANCH_NAME==MAIN_BRANCH){
         // iterate the services and bump the version in package.json
             for(srv in changed_services){
@@ -124,7 +126,7 @@ node {
                     }
             }
             // convert to string for the commit description
-            changed_services_str=changed_services.join(' ')
+            
             stage("commit changes"){
                 sh '''
                 # setting user for commit

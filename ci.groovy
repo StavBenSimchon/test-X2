@@ -1,7 +1,7 @@
 node {
     // manual configuration
     // testing
-    env.MAIN_BRANCH="main"
+    env.MAIN_BRANCH="develop"
     env.ENV_DEPLOY="testing"
     env.KUBE_FILE="fin-client-devops-test"
 
@@ -102,15 +102,15 @@ node {
             git reset --hard origin/$BRANCH_NAME 
         '''
     }
-    echo "using cmd : $git_compare_cmd "
+    echo "using git command to identify changes: $git_compare_cmd "
     // identify what services have changes by git diffrences by folder
     changed=sh(script:git_compare_cmd,returnStdout: true).split("\n")
     // filter the changed folder to get the changed services
     changed_services=changed.findAll{services.contains(it)}
     // check if there are services that changed
     if(changed_services.size()>0){
-        // iterate the services and bump the version in package.json
         if(BRANCH_NAME==MAIN_BRANCH){
+        // iterate the services and bump the version in package.json
             for(srv in changed_services){
                 env.SRV=srv
                 stage("bump ${SRV} package.json version"){

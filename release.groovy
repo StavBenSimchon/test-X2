@@ -1,144 +1,164 @@
 node {
-    stage('parse payload'){
-        env.ACTION = sh (
-            script: 'set +x; echo $payload | jq -e  .action | tr -d \\\"',
-            returnStdout: true
-        ).trim()   
-        env.REP_NAME = sh (
-            script: 'set +x; echo $payload | jq -e  .repository.name | tr -d \\\"',
-            returnStdout: true
-        ).trim()
-        env.BRANCH = sh (
-            script: 'set +x; echo $payload | jq -e  .pull_request.head.ref | tr -d \\\"',
-            returnStdout: true
-        ).trim() 
-        env.MERGED = sh (
-            script: 'set +x; echo $payload | jq -e  .pull_request.merged | tr -d \\\"',
-            returnStdout: true
-        ).trim()
-        env.MERGED_TO = sh (
-            script: 'set +x; echo $payload | jq -e  .pull_request.base.ref | tr -d \\\"',
-            returnStdout: true
-        ).trim()
-        env.COMMIT_SHA = sh (
-            script: 'set +x; echo $payload | jq -e  .pull_request.head.sha | tr -d \\\"',
-            returnStdout: true
-        ).trim()
-        // env.MAIN_BRANCH="integration"
-        // env.ENV_DEPLOY="integration"
-        env.EXIT_AFTER_TEST=true
-        env.BRANCH_NAME="$BRANCH"
-        env.NEED_BUILD=false
-        BUILD_DEP=false
-        // testing
-        env.MAIN_BRANCH="CodeWizard-deployment"
-        services=["crm","flowchart-executor","bpmn","gateway-crm","notification","mailbox-fetcher","bonus-job"]
-        env.MODULES='crm-app,crm-gateway,crm-notification,crm-bpmn,flowchart-executor,crm-bonus-job,crm-mailbox-fetcher'
-        
-        env.COMIT=false 
-        // deploy var
-        // env.KUBE_FILE="crm-tp-$ENV_DEPLOY"
-        env.ENV_DEPLOY="testing"
-        env.KUBE_FILE="fin-client-devops-test"
-        }
-        if ( ! MERGED=="true" ){
-            return
-        }
-        stage("clean workspace"){
-            cleanWs()
-        }
-        dep_a=sh(script:'git diff --name-only $(git log --pretty=format:"%H" --merges -n 2 | tail -n 1)..HEAD | grep "/" | cut -f1 -d"/" | uniq',returnStdout: true)
-        dep_srv=dep_a.split("\n")
-        ret=[]
-        if(ret.size()>0){
-                for(srv in ret){
-                    env.SRV=srv
-                    stage("bump ${SRV} package.json version"){
-                        sh '''
-                        #bumping version in package.json
-                        cd ${SRV}
-                        npm version patch --no-git-tag-version
-                        cd ..
-                        '''
-                        }
-                }
-                stage("commit changes"){
-                    sh '''
-                    # Commit the desired changes to git
-                    git config --local user.email "no-response@jenkins.com"
-                    git config --local user.name  "Jenkins"
-
-                    git add ${SRV}/package.json ${RN_F}
-                    git commit -m "Version bump for services"
-                    git push origin
-                    '''
-                }
-                for(srv in ret){
-                    env.SRV=srv
-                    stage("get version ${SRV} for build"){
-                        env.T_VERSION = sh (
-                            script: "cat ${SRV}/package.json | jq -r .version",
-                            returnStdout: true
-                        ).trim()
-                        env.VERSION = "${T_VERSION}_${currentBuild.number}"
-                    }
-                    stage("building ${SRV} image for GCR"){
-                        echo "Building ${SRV} docker image version: ${VERSION}"
-                        // googleCloudBuild credentialsId: 'p3marketers-manage', request: file("${SRV}/cloudbuild.yaml"), source: local("${SRV}"), substitutions: [_BUILD_TAG: "$VERSION"]
-                    }
-                    stage("retag and deploy service: ${SRV} to env: ${ENV_DEPLOY}"){
-                        env.SERVICE_FOLDER_MF="services_folder_names.json"
-                        env.SERVICE_DEPLOY_MF="deployments.json"
-                        sh '''#!/usr/bin/env bash
-                            GCR_IMAGE_NAME=$( jq -er .\\\"$SRV\\\" <<< $SERVICE_FOLDER_MF)
-                	        echo ">> adding $ENV_DEPLOY tag to the image: $GCR_IMAGE_NAME:$VERSION"
-
-                            BASE="gcr.io/p3marketers-manage/$GCR_IMAGE_NAME"
-                            gcloud container images add-tag --quiet \
-                            $BASE:$VERSION \
-                            $BASE:$ENV_DEPLOY
-
-                            # map gcr image name to deployment name
-                            DEPLOY_SERVICE_NAME=$( jq -r .\\\"$SRV\\\" <<< $SERVICE_DEPLOY_MF)
-                            echo ">> deploying service ${SRV} to cluster, env:$ENV_DEPLOY deployment name: $DEPLOY_SERVICE_NAME"
-                            
-                            # deploying service to cluster
-                            kubectl --kubeconfig=/var/lib/jenkins/.kube/$KUBE_FILE rollout restart deployment $DEPLOY_SERVICE_NAME
-                        '''
-                    }
-                }
-            }
-            else{
-                stage("dependencies skipped"){
-                    echo "skipped"
-                }
-            }
-    stage("checkout"){
-        checkout([$class: 'GitSCM', branches: [[name: "$branch"]], 
+    // CD DEPLOY SCHEDUAL OR NIGHTLY OR IN CI
+    //the main branch to check changes , which will have tags , and will deploy to integration environment
+    env.MAIN_BRANCH='integration'
+    stage("check if changes happened"){
+        // checkout only the develop branch
+        checkout([$class: 'GitSCM', 
+        branches: [[name: "$MAIN_BRANCH"]], 
         doGenerateSubmoduleConfigurations: false, 
         extensions: [], 
         submoduleCfg: [], 
-        userRemoteConfigs: [[refspec: '+refs/heads/develop:refs/remotes/origin/develop ', url: 'https://github.com/mesmeslip/test-X2.git']]])
+        // userRemoteConfigs: [[refspec: '+refs/heads/develop:refs/remotes/origin/develop +refs/heads/feature-*:refs/remotes/origin/feature-*', url: '${REP_NAME}']]])
+        userRemoteConfigs: [[refspec: '+refs/heads/develop:refs/remotes/origin/develop', url: 'https://github.com/mesmeslip/test-X2.git']]])
         sh '''#! /bin/bash
-            echo "test"
-            echo $payload
-            echo $BRANCH
-            git branch
-            env
+            git fetch
+            git checkout $BRANCH_NAME 
+            git reset --hard origin/$BRANCH_NAME 
+        '''
+        // get latest tag name and compare head with tag commit to check if there are changes
+        // if there are changes create a release and deploy the services that changed
+        env.TAG_STR=sh(script:'git describe --abbrev=0 --tags',returnStdout:true).trim()
+        def changes=sh(script:'[ "`git rev-parse ${TAG_STR}`" ==  "`git rev-parse HEAD`" ] && echo y || echo n').trim().toBoolean()
+    }
+    if (!changes){
+        echo 'no changes happened'
+        return
+    }
+    dep_a=sh(script:git-compare-cmd,returnStdout: true)
+    dep_srv=dep_a.split("\n")
+    ret=[]
+    if(ret.size()>0){
+
+    }
+    stage("set release notes"){
+        // bumping the tag version
+        // creating release notes with the changes  
+        sh '''#!/usr/bin/env bash
+            set -e
+            # buping the tag version 
+            # sanitise the string
+            TAG_STR=$(echo $TAG_STR | tr -d "v")
+            set +e
+            echo "$TAG_STR" | grep -E '^[0-9]+\\.[0-9]+\\.'
+            if [ "$?" != 0 ]; then
+                echo "the lastest tag is not a number, can't increment if its a string"
+                exit 1
+            fi
+            set -e
+            IFS='.' read -ra ADDR <<< "$TAG_STR"
+            # which part to bump
+            ADDR[2]=$((${ADDR[2]} + 1))
+            for i in ${ADDR[@]};do
+                nv+=$i
+                nv+="."
+            done
+            tag_ver=$(echo "${nv::-1}")
+            nextTag="v${tag_ver}"
+
+            # Find the relevant commits up to the previous tag
+            # We search for merged pull requests
+            # We can also use the full message if required
+            #changes=$(git log $TAG_STR..HEAD --oneline --format=%B | sed '/^$/d' | awk -F' ' '{print $1}')
+            changes=$(git log $TAG_STR..HEAD --oneline --format=%B )
+
+            # We can filter out only the ticket number
+            changes=$(echo $changes | sed 's/CRM/\\n- CRM/g' | sed '/^$/d')
+            RN_F="crm/app/realease_notes.md"
+            touch ${RN_F}
+            # Append the list of changes to the relase notes file
+            echo "$changes" | cat - ${RN_F} > /tmp/out && mv /tmp/out ${RN_F}
+
+            # Append the new version number   
+            echo "# $nextTag" | cat - ${RN_F} > /tmp/out && mv /tmp/out ${RN_F}
+
+            head ${RN_F} --lines=20
+
+            # get back to the root folder
+            cd -
+            git add ${RN_F}
+
+            #save for next stage
+            echo "$nextTag" > /tmp/deployTag 
         '''
     }
-    stage("parse"){
-        sh '''
-            echo $payload | jq .
+    stage("make dependencies files"){
+        env.nextTag = readFile('/tmp/deployTag ').trim()
+        sh '''#!/usr/bin/env bash
+            set -e				  
+            # Check to see if we have any required modules
+
+            # Set the assoiative array to store the data
+            SERVICES_VERSIONS=()
+
+            # read the selected modules
+            IFS=',' read -ra MODULES_ARR <<< "${MODULES}"
+
+            # Build the google cli command 
+            GCLOUD_CMD="gcloud container images list-tags --quiet --format=json --limit=1"
+
+            # Loop over the modules to fetch
+            for MODULE in ${MODULES_ARR[@]}
+            do
+                # Set the base image to pull the tags of 
+                BASE="gcr.io/p3marketers-manage/$MODULE"
+
+                # grab the version ffom GCP Container Registry
+                VERSION=`$GCLOUD_CMD $BASE | jq -e ".[0].tags[0]"`
+                
+                # Debug
+                echo "Service name: $MODULE, Latest version: $VERSION"
+                
+                # Store the service name & version in the associative array for later use
+                SERVICES_VERSIONS+=("${MODULE}")
+                SERVICES_VERSIONS+=("${VERSION}")
+            done
+            echo ${SERVICES_VERSIONS[@]}
+            # Build the JSON output for adding to the repository
+            JSON=$({
+                echo '{'
+                printf '"%s": %s,\n' "${SERVICES_VERSIONS[@]}" | sed '$s/,$//'
+                echo '}'
+            } | jq .)
+
+            # add the file to the repository
+            echo $JSON > services.json
+
+            cat services.json
+
+            # Commit the changes
+            git add services.json         
+            git commit -m "bump version to:$nextTag
+            generated released_notes.md
+            generated services.json"
+            ######### DEBUG #######
+            set +e
+            git tag -d testing
+            git push origin :refs/tags/testing
+            set -e
+            #######################
+            git tag -f -a -m "bump version $nextTag" $nextTag
+            git push --follow-tags origin $BRANCH_NAME
         '''
     }
-    stage("build"){
-        echo "build"
-    }
-    stage("test"){
-        echo "test"
-    }
-    stage("deploy"){
-        echo "deploy"
+    stage("retag and deploy service: ${SRV} to env: ${ENV_DEPLOY}"){
+        env.SERVICE_FOLDER_MF="services_folder_names.json"
+        env.SERVICE_DEPLOY_MF="deployments.json"
+        sh '''#!/usr/bin/env bash
+            GCR_IMAGE_NAME=$( jq -er .\\\"$SRV\\\" <<< $SERVICE_FOLDER_MF)
+            echo ">> adding $ENV_DEPLOY tag to the image: $GCR_IMAGE_NAME:$VERSION"
+
+            BASE="gcr.io/p3marketers-manage/$GCR_IMAGE_NAME"
+            gcloud container images add-tag --quiet \
+            $BASE:$VERSION \
+            $BASE:$ENV_DEPLOY
+
+            # map gcr image name to deployment name
+            DEPLOY_SERVICE_NAME=$( jq -r .\\\"$SRV\\\" <<< $SERVICE_DEPLOY_MF)
+            echo ">> deploying service ${SRV} to cluster, env:$ENV_DEPLOY deployment name: $DEPLOY_SERVICE_NAME"
+            
+            # deploying service to cluster
+            kubectl --kubeconfig=/var/lib/jenkins/.kube/$KUBE_FILE rollout restart deployment $DEPLOY_SERVICE_NAME
+        '''
     }
 }

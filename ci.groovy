@@ -110,28 +110,30 @@ node {
     // check if there are services that changed
     if(changed_services.size()>0){
         // iterate the services and bump the version in package.json
-        for(srv in changed_services){
-            env.SRV=srv
-            stage("bump ${SRV} package.json version"){
+        if(BRANCH_NAME==MAIN_BRANCH){
+            for(srv in changed_services){
+                env.SRV=srv
+                stage("bump ${SRV} package.json version"){
+                    sh '''
+                    #bumping version in package.json
+                    cd ${SRV}
+                    npm version patch --no-git-tag-version
+                    cd ..
+                    git add ${SRV}/package.json 
+                    '''
+                    }
+            }
+            // convert to string for the commit description
+            changed_services_str=changed_services.join(' ')
+            stage("commit changes"){
                 sh '''
-                #bumping version in package.json
-                cd ${SRV}
-                npm version patch --no-git-tag-version
-                cd ..
-                git add ${SRV}/package.json 
+                # setting user for commit
+                git config --local user.email "no-response@jenkins.com"
+                git config --local user.name  "Jenkins"
+                git commit -m "Version bump for services: $changed_services_str"
+                git push origin
                 '''
-                }
-        }
-        // convert to string for the commit description
-        changed_services_str=changed_services.join(' ')
-        stage("commit changes"){
-            sh '''
-            # setting user for commit
-            git config --local user.email "no-response@jenkins.com"
-            git config --local user.name  "Jenkins"
-            git commit -m "Version bump for services: $changed_services_str"
-            git push origin
-            '''
+            }
         }
         // iterate services and build image for each one
         // docker image format: branchName_version_buildNumber

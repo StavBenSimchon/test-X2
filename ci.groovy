@@ -2,17 +2,13 @@ node {
     // manual configuration
     // testing
     env.MAIN_BRANCH="develop"
-    env.ENV_DEPLOY="testing"
-    env.KUBE_FILE="fin-client-devops-test"
 
     env.ACTION = ''
     env.REP_NAME = ''
     env.MERGED = true
-    env.BRANCH = "$BRANCH"
+    env.BRANCH_NAME = "$BRANCH"
     env.MERGED_TO = "$MAIN_BRANCH"
     // env.MAIN_BRANCH="integration"
-    // env.ENV_DEPLOY="integration"
-    // env.KUBE_FILE="crm-tp-$ENV_DEPLOY"
     srv_map=["crm":"crm-app","flowchart-executor":"flowchart-executor","bpmn":"crm-bpmn","gateway-crm":"crm-gateway",
     "notification":"crm-notification","mailbox-fetcher":"crm-mailbox-fetcher","bonus-job":"crm-bonus-job"]
     env.MODULES = srv_map.collect{it.value}.join(',')
@@ -33,7 +29,7 @@ node {
                 script: 'set +x; echo $payload | jq -e  .repository.name | tr -d \\\"',
                 returnStdout: true
             ).trim()
-            env.BRANCH = sh (
+            env.BRANCH_NAME = sh (
                 script: 'set +x; echo $payload | jq -e  .pull_request.head.ref | tr -d \\\"',
                 returnStdout: true
             ).trim() 
@@ -63,17 +59,12 @@ node {
                 break
         }
     }
-    env.BRANCH_NAME="$BRANCH"
                 if (env.MERGED=="true"){
                     // for merged pull request we will checkout the branch we merged to
                     env.BRANCH_NAME="$MERGED_TO"
                     // because we merged we are on top of the "main branch", 
                     // identify head commit to the last merged commit , after merge its including all the merged commits
                     git_compare_cmd='git diff --name-only $(git log --pretty=format:"%H" --merges -n 2 | tail -n 1)..HEAD | grep "/" | cut -f1 -d"/" | uniq'
-                    //if we want to identify pull request merge to ${MAIN_BRANCH}
-                    // if (env.MERGED_TO == env.MAIN_BRANCH){
-                    //         env.BRANCH_NAME="$MAIN_BRANCH"
-                    // }
                 }
     // if the head branch or the base branch is not the gitflow branches exit the job
     if(!(BRANCH_NAME.matches(regex) || MERGED_TO.matches(regex))){
@@ -125,8 +116,6 @@ node {
                     '''
                     }
             }
-            // convert to string for the commit description
-            
             stage("commit changes"){
                 sh '''
                 # setting user for commit

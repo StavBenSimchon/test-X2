@@ -2,8 +2,8 @@ node {
     // CD DEPLOY SCHEDUAL OR NIGHTLY OR IN CI
     // map for retag and deploy
     env.ENV_DEPLOY = 'integration'
-    env.MAIN_BRANCH = 'integration'
-    env.DEPLOYMENT_JOB='CRM-SERVICES-DEPLOYMENT'
+    env.MAIN_BRANCH = 'develop'
+    env.DEPLOYMENT_JOB='test'
 
     srv_map=["crm":"crm-app","flowchart-executor":"flowchart-executor","bpmn":"crm-bpmn","gateway-crm":"crm-gateway",
     "notification":"crm-notification","mailbox-fetcher":"crm-mailbox-fetcher","bonus-job":"crm-bonus-job"]

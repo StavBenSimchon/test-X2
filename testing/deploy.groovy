@@ -2,7 +2,7 @@ node{
     // configure default in the job not in the script
     // env.VERSION_TAG=''
     env.BRANCH_NAME='codeWizard-deployment'
-    env.ENV_DEPLOY-'testing'
+    env.ENV_DEPLOY='testing'
     env.KUBE_FILE="fin-client-devops-test"
 
     // env.ENV_DEPLOY-'integration'

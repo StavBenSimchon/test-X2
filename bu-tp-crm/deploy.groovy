@@ -2,7 +2,7 @@ node{
     // configure default in the job not in the script
     // env.VERSION_TAG=''
     env.BRANCH_NAME='codeWizard-deployment'
-    env.ENV_DEPLOY-'testing'
+    env.ENV_DEPLOY='testing'
     env.KUBE_FILE="fin-client-devops-test"
 
     // env.ENV_DEPLOY-'integration'
@@ -24,11 +24,10 @@ node{
     stage("checkout"){
         checkout([$class: 'GitSCM', 
         branches: [[name: "$BRANCH_NAME"]], 
-        branches: [[name: "tags/$BRANCH_NAME"]], 
+        // branches: [[name: "tags/$BRANCH_NAME"]], 
         doGenerateSubmoduleConfigurations: false, 
         extensions: [], 
         submoduleCfg: [], 
-        // userRemoteConfigs: [[refspec: '+refs/heads/${MAIN_BRANCH}:refs/remotes/origin/${MAIN_BRANCH} +refs/heads/feature-*:refs/remotes/origin/feature-*', url: '${REP_NAME}']]])
         userRemoteConfigs: [[refspec: "+refs/heads/${BRANCH_NAME}:refs/remotes/origin/${BRANCH_NAME}",
         url: "git@github.com:LMLab/${REP_NAME}.git"]]])
         sh '''#! /bin/bash
@@ -50,7 +49,7 @@ node{
                 env.SERVICES_JSON="services.json"
                 sh '''#!/usr/bin/env bash
                     GCR_IMAGE_NAME=${SRV}
-                    VERSION=$( jq -er .\\\"$SRV\\\" <<< $SERVICES_JSON)
+                    VERSION=$( cat $SERVICES_JSON | jq -er .\\\"$SRV\\\")
                     echo ">> adding $ENV_DEPLOY tag to the image: $GCR_IMAGE_NAME:$VERSION"
 
                     BASE="gcr.io/p3marketers-manage/$GCR_IMAGE_NAME"

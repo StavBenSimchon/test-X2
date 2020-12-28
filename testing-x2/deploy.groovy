@@ -1,7 +1,7 @@
 node{
     // configure default in the job not in the script
     // env.VERSION_TAG=''
-    env.BRANCH_NAME='codeWizard-deployment'
+    env.BRANCH_NAME='develop'
     env.ENV_DEPLOY='testing'
     env.KUBE_FILE="fin-client-devops-test"
 
@@ -49,7 +49,7 @@ node{
                 env.SERVICES_JSON="services.json"
                 sh '''#!/usr/bin/env bash
                     GCR_IMAGE_NAME=${SRV}
-                    VERSION=$( jq -er .\\\"$SRV\\\" <<< $SERVICES_JSON)
+                    VERSION=$( cat $SERVICES_JSON | jq -er .\\\"$SRV\\\")
                     echo ">> adding $ENV_DEPLOY tag to the image: $GCR_IMAGE_NAME:$VERSION"
 
                     BASE="gcr.io/p3marketers-manage/$GCR_IMAGE_NAME"

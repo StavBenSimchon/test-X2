@@ -1,8 +1,9 @@
 node {
     //testing 
     env.ENV_DEPLOY = 'testing'
-    env.MAIN_BRANCH = 'develop'
+    env.MAIN_BRANCH = 'codeWizard-deployment'
     env.DEPLOYMENT_JOB=''
+    env.RN_F="crm/app/realease_notes.md"
 
     // map for retag and deploy
     // env.ENV_DEPLOY = 'qa'
@@ -23,7 +24,7 @@ node {
         extensions: [], 
         submoduleCfg: [], 
         userRemoteConfigs: [[
-        url:"https://mesmeslip:Stv665577@github.com/mesmeslip/test-X2.git"]]])
+        url:"git@github.com:LMLab/tp-crm.git"]]])
         sh '''#! /bin/bash
             git fetch
             git checkout $MAIN_BRANCH 
@@ -47,7 +48,6 @@ node {
     changed=sh(script:git_compare_cmd,returnStdout: true).split("\n")
     // filter the changed folder to get the changed services
     changed_services=changed.findAll{services.contains(it)}
-    changed_services=['service_a','service_b']
     // if the services didnt changed skip release
     if(changed_services.size()==0){
         echo 'no changes happened in services, skipping release'
@@ -57,7 +57,6 @@ node {
     // creating release notes with the changes  
     stage("set release notes"){
         // placing release notes in folder
-        env.RN_F="./realease_notes.md"
         sh '''#!/usr/bin/env bash
             set -e
             # Find the relevant commits up to the previous tag
@@ -118,7 +117,7 @@ node {
 
             # Build the google cli command 
             # filter by mainbranch prefix , take the last created build by timestamp of the build 
-            #GCLOUD_CMD="gcloud container images list-tags --filter=tags:${MAIN_BRANCH}- --format=json --quiet --limit=1 --format=json"
+            GCLOUD_CMD="gcloud container images list-tags --filter=tags:${MAIN_BRANCH}- --format=json --quiet --limit=1 --format=json"
 
             # Loop over the modules to fetch
             for MODULE in ${MODULES_ARR[@]}
@@ -127,8 +126,7 @@ node {
                 BASE="gcr.io/p3marketers-manage/$MODULE"
 
                 # grab the version from GCP Container Registry
-                #VERSION=`$GCLOUD_CMD $BASE | jq -er 'select(.[0] != null)[0].tags[] | select (test("${MAIN_BRANCH}"))'`
-                VERSION='"1.2.3"'
+                VERSION=`$GCLOUD_CMD $BASE | jq -er 'select(.[0] != null)[0].tags[] | select (test("${MAIN_BRANCH}"))'`
                 # Debug
                 echo "Service name: $MODULE, Latest version: $VERSION"
                 
@@ -148,8 +146,8 @@ node {
             echo $JSON > services.json
 
             cat services.json
-            git config --global user.email "noreply@jenkins.com"
-            git config --global user.name "Jenkins"
+            git config --local user.email "noreply@jenkins.com"
+            git config --local user.name "Jenkins"
             # Commit the changes
             git add services.json         
             git commit -m "bump version to:$nextTag
@@ -162,11 +160,10 @@ generated services.json"
             set -e
             #######################
             git tag -f -a -m "bump version $nextTag" $nextTag
-            echo " main branch is : $MAIN_BRANCH" 
             git push --follow-tags origin $MAIN_BRANCH
             # create branch for release
-            git checkout -b release-$nextTag-2
-            git push  origin release-$nextTag-2
+            git checkout -b release-$nextTag
+            git push 
 
             # if needed for later
             echo "$nextTag" > /tmp/deployTag 

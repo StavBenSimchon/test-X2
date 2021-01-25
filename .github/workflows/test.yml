@@ -14,11 +14,14 @@ jobs:
           with:
             fetch-depth: 0
         - name: diff
+          id: diff
           run: |
-              echo ${{ github.event }}
-              ls -al
               git diff --name-only `git describe --abbrev=0 --tags`..HEAD | grep "/" | cut -f1 -d"/" | uniq
-          
+              echo ${GITHUB_REF##*/}
+        - name: Push to ECR
+          id: ecr
+          run: |
+            echo ${{ steps.diff.outputs.branch }}
 #       - uses: actions/checkout@v2
 #       - name: jenkins
         # if: github.event.pull_request.merged == true && github.event.base_ref == main

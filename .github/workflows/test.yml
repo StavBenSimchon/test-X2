@@ -14,8 +14,8 @@ jobs:
           echo ${{ github.event }}
           git diff --name-only `git describe --abbrev=0 --tags`..HEAD
           
-      - uses: actions/checkout@v2
-      - name: jenkins
+#       - uses: actions/checkout@v2
+#       - name: jenkins
         # if: github.event.pull_request.merged == true && github.event.base_ref == main
 #         uses: enflo/jenkins-action@master
 #         with:

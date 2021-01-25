@@ -1,19 +1,22 @@
-# name: CI
-# on:
+name: CI
+on:
+    push:
+        branches: [main,develop]
 #   pull_request:
 #     types: [closed,opened,reopened]
-# jobs:
-#   build:
-#     name: run-jenkins
-#     runs-on: ubuntu-16.04
-#     steps:
-#       - name: a
-#         run: |
-#           echo ${{ github.event }}
+jobs:
+  build:
+    name: run-jenkins
+    runs-on: ubuntu-16.04
+    steps:
+      - name: a
+        run: |
+          echo ${{ github.event }}
+          git diff --name-only `git describe --abbrev=0 --tags`..HEAD
           
-#       - uses: actions/checkout@v2
-#       - name: jenkins
-#         # if: github.event.pull_request.merged == true && github.event.base_ref == main
+      - uses: actions/checkout@v2
+      - name: jenkins
+        # if: github.event.pull_request.merged == true && github.event.base_ref == main
 #         uses: enflo/jenkins-action@master
 #         with:
 #           url: http://445e3f781694.ngrok.io

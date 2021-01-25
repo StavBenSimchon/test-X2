@@ -16,13 +16,15 @@ jobs:
         - name: diff
           id: diff
           run: |
-              git diff --name-only `git describe --abbrev=0 --tags`..HEAD | grep "/" | cut -f1 -d"/" | uniq | tr '\n' ' '
+              services=$(git diff --name-only `git describe --abbrev=0 --tags`..HEAD | grep "/" | cut -f1 -d"/" | uniq | tr '\n' ' ')
               BRANCH=${GITHUB_REF##*/}
               echo "##[set-output name=branch;]${BRANCH}"
+              echo "##[set-output name=services;]${services}"
         - name: Push to ECR
           id: ecr
           run: |
             echo ${{ steps.diff.outputs.branch }}
+            echo ${{ steps.diff.outputs.services }}
 #       - uses: actions/checkout@v2
 #       - name: jenkins
         # if: github.event.pull_request.merged == true && github.event.base_ref == main

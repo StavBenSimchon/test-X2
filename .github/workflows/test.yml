@@ -17,7 +17,7 @@ jobs:
           run: |
               echo ${{ github.event }}
               ls -al
-              git diff --name-only `git describe --abbrev=0 --tags`..HEAD
+              git diff --name-only `git describe --abbrev=0 --tags`..HEAD | grep "/" | cut -f1 -d"/" | uniq
           
 #       - uses: actions/checkout@v2
 #       - name: jenkins

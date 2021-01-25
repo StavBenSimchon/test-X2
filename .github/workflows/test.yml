@@ -21,7 +21,7 @@ jobs:
         - name: Push to ECR
           id: ecr
           run: |
-            echo ${{ steps.diff.outputs.branch }}
+            echo ${{ steps.diff.outputs }}
 #       - uses: actions/checkout@v2
 #       - name: jenkins
         # if: github.event.pull_request.merged == true && github.event.base_ref == main

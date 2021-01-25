@@ -14,6 +14,7 @@ jobs:
         - name: a
           run: |
               echo ${{ github.event }}
+              ls -al
               git diff --name-only `git describe --abbrev=0 --tags`..HEAD
           
 #       - uses: actions/checkout@v2

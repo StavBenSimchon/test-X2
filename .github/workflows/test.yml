@@ -9,10 +9,12 @@ jobs:
     name: run-jenkins
     runs-on: ubuntu-16.04
     steps:
-      - name: a
-        run: |
-          echo ${{ github.event }}
-          git diff --name-only `git describe --abbrev=0 --tags`..HEAD
+        - uses: actions/checkout@v2
+          name: checkout
+        - name: a
+          run: |
+              echo ${{ github.event }}
+              git diff --name-only `git describe --abbrev=0 --tags`..HEAD
           
 #       - uses: actions/checkout@v2
 #       - name: jenkins

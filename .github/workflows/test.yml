@@ -11,7 +11,9 @@ jobs:
     steps:
         - uses: actions/checkout@v2
           name: checkout
-        - name: a
+          with:
+            fetch-depth: 0
+        - name: diff
           run: |
               echo ${{ github.event }}
               ls -al
